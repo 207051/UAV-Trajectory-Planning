@@ -141,8 +141,8 @@ if raw_path is not None:
 
     # --- GÖRSELLEŞTİRME ---
     fig, ax = plt.subplots(figsize=(12, 7))
-    start_img = get_image("start.png", zoom=0.1, angle=-130)
-    base_img = get_image("base.png", zoom=0.11)
+    start_img = get_image("images/start.png", zoom=0.1, angle=-130)
+    base_img = get_image("images/base.png", zoom=0.11)
 
     # Engelleri Çiz (Her biri kendi yarıçapıyla)
     for i, o in enumerate(complex_obs):
@@ -150,7 +150,7 @@ if raw_path is not None:
         ax.add_patch(circle)
         # Tank görsellerini ekle (Dosyalar mevcutsa)
         # Mevcut satırı şununla değiştir:
-        tank_img = get_image("tank_a.png", zoom=radii[i] * 0.009)
+        tank_img = get_image("images/tank_a.png", zoom=radii[i] * 0.009)
         if tank_img:
             ax.add_artist(AnnotationBbox(tank_img, o, frameon=False))
         else:
