@@ -6,18 +6,16 @@ import time
 import matplotlib.pyplot as plt
 from matplotlib.offsetbox import OffsetImage, AnnotationBbox
 
-# --- GÖRSEL YÜKLEME FONKSİYONU ---
+# --- IMAGE LOADING FUNCTION ---
 def get_image(path, zoom=0.08, angle=0): # angle parametresi eklendi
     try:
         img = Image.open(path).convert("RGBA")
         
-        # --- DÖNDÜRME İŞLEMİ ---
+        # --- ROTATE PROCESS ---
         if angle != 0:
-            # expand=True resmin köşelerinin kesilmesini önler
             img = img.rotate(angle, expand=True, resample=Image.BICUBIC)
         
         data = np.array(img)
-        # ... (maskeleme işlemleri aynı kalıyor) ...
         r, g, b, a = data[:,:,0], data[:,:,1], data[:,:,2], data[:,:,3]
         mask = (r > 200) & (g > 200) & (b > 200)
         data[:,:,3][mask] = 0
@@ -27,7 +25,7 @@ def get_image(path, zoom=0.08, angle=0): # angle parametresi eklendi
         print(f"Hata: {e}")
         return None
 
-# --- 1. ADIM: A* ALGORİTMASI (Dinamik Yarıçaplı) ---
+# --- A* ALGORITHM ---
 def a_star(start, goal, obstacles, radii, grid_size=120):
     def dist(a, b): return np.linalg.norm(np.array(a) - np.array(b))
     
@@ -38,7 +36,7 @@ def a_star(start, goal, obstacles, radii, grid_size=120):
     oheap = []
     heapq.heappush(oheap, (fscore[tuple(start)], tuple(start)))
     
-    # Komşu hareketleri (8 yönlü)
+    # Neighboring movements (8 directions)
     neighbors = [(0,2),(0,-2),(2,0),(-2,0),(2,2),(2,-2),(-2,2),(-2,-2)]
     
     while oheap:
@@ -71,10 +69,10 @@ def a_star(start, goal, obstacles, radii, grid_size=120):
                     heapq.heappush(oheap, (fscore[neighbor], neighbor))
     return None
 
-# --- 2. ADIM: SCP ALGORİTMASI (Dinamik Yarıçaplı) ---
+# --- SCP ALGORITHM ---
 def solve_scp_hybrid(start, goal, obstacles, radii, initial_path):
     start_total_time = time.time()
-    # Yolu örnekle (N nokta)
+    # Sample the path (N points)
     indices = np.linspace(0, len(initial_path)-1, 50, dtype=int)
     p_curr = initial_path[indices]
     N = len(p_curr)
@@ -84,23 +82,23 @@ def solve_scp_hybrid(start, goal, obstacles, radii, initial_path):
     max_iters = 5
     
     for i in range(max_iters):
-        # Maliyet: Kısa yol + Yumuşak dönüşler (Smoothness)
+        # Cost: Shortcut + Smooth turns
         cost = cp.sum_squares(p[1:] - p[:-1]) + 50 * cp.sum_squares(p[2:] - 2*p[1:-1] + p[:-2])
         
         constraints = [p[0] == start, p[-1] == goal]
         
-        # Dinamik Engel Kısıtlamaları (Linearized Distance Constraints)
+        # Dynamic Obstacle Constraints (Linearized Distance Constraints)
         for k in range(N):
             for idx, obs in enumerate(obstacles):
                 diff_vec = p_curr[k] - obs
                 d_prev = np.linalg.norm(diff_vec)
-                # Taylor serisi açılımı ile dışbükeyleştirme
+                # Taylor series expansion and convexity
                 constraints.append(d_prev + (diff_vec/d_prev) @ (p[k] - p_curr[k]) >= radii[idx] + 1.0)
         
         prob = cp.Problem(cp.Minimize(cost), constraints)
         prob.solve(solver=cp.OSQP, warm_start=True)
         
-        if p.value is None: break # Çözüm bulunamazsa çık
+        if p.value is None: break 
         
         p_new = p.value
         diff_magnitude = np.linalg.norm(p_new - p_curr, axis=1).max()
@@ -109,12 +107,12 @@ def solve_scp_hybrid(start, goal, obstacles, radii, initial_path):
         
     return p_curr, time.time() - start_total_time
 
-# --- 3. ADIM: SENARYO VE ÇALIŞTIRMA ---
+# --- SCENARIO ---
 grid_limit = 120
 start_node = np.array([10, 60])
 goal_node = np.array([110, 60])
 
-# Engeller ve Yarıçapları: [x, y, radius]
+# Obstacles and Radiuses: [x, y, radius]
 obs_data = np.array([
     [35, 65, 12.0], 
     [60, 50, 6.0],  
@@ -132,43 +130,39 @@ obs_data = np.array([
 complex_obs = obs_data[:, :2]
 radii = obs_data[:, 2]
 
-# Hesaplamalar
+# Calculations
 raw_path = a_star(start_node, goal_node, complex_obs, radii, grid_limit)
 
 if raw_path is not None:
     final_path, scp_duration = solve_scp_hybrid(start_node, goal_node, complex_obs, radii, raw_path)
     path_dist = np.sum(np.linalg.norm(np.diff(final_path, axis=0), axis=1))
 
-    # --- GÖRSELLEŞTİRME ---
+    # --- VISUALIZATION ---
     fig, ax = plt.subplots(figsize=(12, 7))
     start_img = get_image("images/start.png", zoom=0.1, angle=-130)
     base_img = get_image("images/base.png", zoom=0.11)
 
-    # Engelleri Çiz (Her biri kendi yarıçapıyla)
+    # Draw the obstacles (each with its own radius)
     for i, o in enumerate(complex_obs):
         circle = plt.Circle(o, radii[i], color='red', alpha=0.15, label="Obstacle" if i==0 else "")
         ax.add_patch(circle)
-        # Tank görsellerini ekle (Dosyalar mevcutsa)
-        # Mevcut satırı şununla değiştir:
         tank_img = get_image("images/tank_a.png", zoom=radii[i] * 0.009)
         if tank_img:
             ax.add_artist(AnnotationBbox(tank_img, o, frameon=False))
         else:
             ax.scatter(o[0], o[1], c='darkred', marker='X')
 
-    # Rotalar
+    # Routes
     ax.plot(raw_path[:,0], raw_path[:,1], 'b--', alpha=0.4, label="Route A*")
     ax.plot(final_path[:,0], final_path[:,1], 'm-', linewidth=2.5, label="A* Driven SCP")
 
-    # Başlangıç ve Bitiş
-    # Başlangıç (Drone) ve Bitiş (Üs) İkonları
+    # Start and Base
     if start_img:
         ax.add_artist(AnnotationBbox(start_img, (start_node[0], start_node[1]), frameon=False, zorder=6))
     if base_img:
         ax.add_artist(AnnotationBbox(base_img, (goal_node[0], goal_node[1]), frameon=False, zorder=6))
 
-    # Bilgi
-    #ax.set_title("Farklı Yarıçaplı Engeller Arasında Yol Planlama", fontsize=14)
+    
     ax.legend(loc='upper right')
     ax.set_xlim(0, grid_limit); ax.set_ylim(0, grid_limit)
     ax.set_aspect('equal')
@@ -176,4 +170,4 @@ if raw_path is not None:
     
     plt.show()
 else:
-    print("Yol bulunamadı!")
+    print("No roud found!")
